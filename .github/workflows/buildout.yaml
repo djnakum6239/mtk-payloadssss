@@ -5,15 +5,14 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   build-payloads:
-    runs-size: ubuntu-latest
     runs-on: ubuntu-latest
     
     strategy:
-      fail-fast: false # Keep running other builds even if one payload fails
+      fail-fast: false
       matrix:
         payload-folder: [
           'libsej', 
@@ -55,8 +54,7 @@ jobs:
           fi
 
       - name: Upload Build Artifacts
-        uses: actions/actions-artifacts/upload-artifact@v4
-        # This will only upload if files were built (usually outputs .bin, .elf, or .a files)
+        uses: actions/upload-artifact@v4
         with:
           name: payload-${{ matrix.payload-folder }}
           path: |
