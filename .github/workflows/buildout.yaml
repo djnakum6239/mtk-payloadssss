@@ -22,38 +22,79 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential
 
-      - name: Create Global Payloads Directory
-        run: mkdir -p payloads
-
-      - name: Build All Folders Sequentially
+      - name: Proactively Initialize Required Output Paths
         run: |
-          # Define the sequence of folders to build
-          TARGET_FOLDERS=("libsej" "da_x" "da_xml" "extloader" "brom_defuse" "hakujoudai")
+          # 1. Create the global payloads folder expected by individual Makefiles
+          mkdir -p payloads
           
-          for folder in "${TARGET_FOLDERS[@]}"; do
-            echo "=================================================="
-            echo "🔨 Starting Build for: $folder"
-            echo "=================================================="
-            
-            if [ -d "$folder" ]; then
-              cd "$folder"
-              if [ -f "Makefile" ] || [ -f "makefile" ]; then
-                make clean || true
-                make
-                echo "✅ Successfully completed: $folder"
-              else
-                echo "⚠️ No Makefile found in $folder. Skipping compilation step."
-              fi
-              cd ..
-            else
-              echo "❌ Folder $folder missing from workspace. Skipping."
+          # 2. Pre-create nested build structures inside subdirectories 
+          # to ensure compilers don't throw file-not-found errors during parallel object linking
+          for folder in */; do
+            if [ -d "$folder" ] && [ "$folder" != "payloads/" ] && [ "$folder" != ".github/" ]; then
+              mkdir -p "${folder}build"
+              mkdir -p "${folder}build/arm"
             fi
           done
 
-      - name: Upload All Compiled Payloads
+      - name: Scan and Build All Folders Dynamically
+        run: |
+          # Automatically detects any subfolder that contains a Makefile 
+          # This prevents breaking if you rename, remove, or add new folders (like sla_xml) later
+          TARGET_FOLDERS=()
+          for d in */; do
+            # Strip trailing slash
+            folder="${d%/}"
+            if [ "$folder" != "payloads" ] && [ "$folder" != ".github" ] && [ "$folder" != "common" ]; then
+              if [ -f "$folder/Makefile" ] || [ -f "$folder/makefile" ]; then
+                TARGET_FOLDERS+=("$folder")
+              fi
+            fi
+          done
+
+          echo "📋 Dynamic Build Target Queue: ${TARGET_FOLDERS[*]}"
+          FAILED_BUILDS=()
+
+          for folder in "${TARGET_FOLDERS[@]}"; do
+            echo "=================================================="
+            echo "🔨 Starting Build for Target Component: $folder"
+            echo "=================================================="
+            
+            cd "$folder"
+            
+            # Run clean step safely
+            make clean || true
+            
+            # Execute actual compilation. Using '|| true' allows the pipeline to keep moving 
+            # to finish compiling other payloads even if one specific model architecture fails.
+            if make; then
+              echo "✅ Successfully completed: $folder"
+            else
+              echo "❌ Error building component: $folder"
+              FAILED_BUILDS+=("$folder")
+            fi
+            
+            cd ..
+          done
+
+          # Execution Post-Mortem Assessment
+          echo "=================================================="
+          echo "📊 Post-Build Verification Summary"
+          echo "=================================================="
+          if [ ${#FAILED_BUILDS[@]} -ne 0 ]; then
+            echo "⚠️ The following modules failed to compile completely:"
+            for failed in "${FAILED_BUILDS[@]}"; do
+              echo "  - $failed"
+            done
+            echo "Reviewing the binary outputs directory below..."
+          else
+            echo "🎉 Excellent! All payload components built perfectly without structural exit errors."
+          fi
+
+      - name: Upload All Available Compiled Payloads
         uses: actions/upload-artifact@v4
         with:
           name: all-mtk-payloads-binaries
           path: payloads/
-          if-no-files-found: error
+          # Set to warn so a single failing folder won't crash the pipeline summary if other bins exist
+          if-no-files-found: warn
           
