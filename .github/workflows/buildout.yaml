@@ -1,0 +1,68 @@
+name: Build MTK Payloads
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
+
+jobs:
+  build-payloads:
+    runs-size: ubuntu-latest
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false # Keep running other builds even if one payload fails
+      matrix:
+        payload-folder: [
+          'libsej', 
+          'da_x', 
+          'da_xml', 
+          'extloader', 
+          'brom_defuse', 
+          'hakujoudai'
+        ]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install ARM GCC Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential
+
+      - name: Verify Toolchain Version
+        run: arm-none-eabi-gcc --version
+
+      - name: Compile Payload
+        run: |
+          if [ -d "${{ matrix.payload-folder }}" ]; then
+            cd "${{ matrix.payload-folder }}"
+            if [ -f "Makefile" ] || [ -f "makefile" ]; then
+              echo "🔨 Compiling ${{ matrix.payload-folder }}..."
+              make clean || true
+              make
+            else
+              echo "⚠️ No Makefile found in ${{ matrix.payload-folder }}"
+            fi
+          else
+            echo "❌ Folder ${{ matrix.payload-folder }} does not exist."
+            exit 1
+          fi
+
+      - name: Upload Build Artifacts
+        uses: actions/actions-artifacts/upload-artifact@v4
+        # This will only upload if files were built (usually outputs .bin, .elf, or .a files)
+        with:
+          name: payload-${{ matrix.payload-folder }}
+          path: |
+            ${{ matrix.payload-folder }}/*.bin
+            ${{ matrix.payload-folder }}/*.elf
+            ${{ matrix.payload-folder }}/*.a
+            ${{ matrix.payload-folder }}/build/
+          if-no-files-found: warn
+          
