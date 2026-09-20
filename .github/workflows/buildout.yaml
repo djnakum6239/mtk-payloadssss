@@ -1,4 +1,4 @@
-name: Build MTK Payloads
+name: Build MTK Payloads (Sequential)
 
 on:
   push:
@@ -8,20 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-payloads:
+  build-all-payloads:
     runs-on: ubuntu-latest
-    
-    strategy:
-      fail-fast: false
-      matrix:
-        payload-folder: [
-          'libsej', 
-          'da_x', 
-          'da_xml', 
-          'extloader', 
-          'brom_defuse', 
-          'hakujoudai'
-        ]
 
     steps:
       - name: Check out repository
@@ -34,33 +22,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential
 
-      - name: Verify Toolchain Version
-        run: arm-none-eabi-gcc --version
+      - name: Create Global Payloads Directory
+        run: mkdir -p payloads
 
-      - name: Compile Payload
+      - name: Build All Folders Sequentially
         run: |
-          if [ -d "${{ matrix.payload-folder }}" ]; then
-            cd "${{ matrix.payload-folder }}"
-            if [ -f "Makefile" ] || [ -f "makefile" ]; then
-              echo "🔨 Compiling ${{ matrix.payload-folder }}..."
-              make clean || true
-              make
+          # Define the sequence of folders to build
+          TARGET_FOLDERS=("libsej" "da_x" "da_xml" "extloader" "brom_defuse" "hakujoudai")
+          
+          for folder in "${TARGET_FOLDERS[@]}"; do
+            echo "=================================================="
+            echo "🔨 Starting Build for: $folder"
+            echo "=================================================="
+            
+            if [ -d "$folder" ]; then
+              cd "$folder"
+              if [ -f "Makefile" ] || [ -f "makefile" ]; then
+                make clean || true
+                make
+                echo "✅ Successfully completed: $folder"
+              else
+                echo "⚠️ No Makefile found in $folder. Skipping compilation step."
+              fi
+              cd ..
             else
-              echo "⚠️ No Makefile found in ${{ matrix.payload-folder }}"
+              echo "❌ Folder $folder missing from workspace. Skipping."
             fi
-          else
-            echo "❌ Folder ${{ matrix.payload-folder }} does not exist."
-            exit 1
-          fi
+          done
 
-      - name: Upload Build Artifacts
+      - name: Upload All Compiled Payloads
         uses: actions/upload-artifact@v4
         with:
-          name: payload-${{ matrix.payload-folder }}
-          path: |
-            ${{ matrix.payload-folder }}/*.bin
-            ${{ matrix.payload-folder }}/*.elf
-            ${{ matrix.payload-folder }}/*.a
-            ${{ matrix.payload-folder }}/build/
-          if-no-files-found: warn
+          name: all-mtk-payloads-binaries
+          path: payloads/
+          if-no-files-found: error
           
